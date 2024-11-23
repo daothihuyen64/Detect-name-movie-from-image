@@ -14,6 +14,7 @@ albumentations==1.3.0
 fastapi==0.95.2
 uvicorn==0.22.0
 numpy==1.24.4
+```plaintext
 
 ## File Descriptions
 
