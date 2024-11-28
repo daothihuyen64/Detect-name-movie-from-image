@@ -11,11 +11,13 @@ import json
 import os
 import torch.nn as nn
 from sklearn.metrics.pairwise import cosine_similarity
+import csv
 
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8081"],  # Thay đổi theo địa chỉ Vue.js của bạn
+    # Thay đổi theo địa chỉ Vue.js của bạn
+    allow_origins=["http://localhost:8081"],
     allow_credentials=True,
     allow_methods=["*"],  # Cho phép tất cả các phương thức (GET, POST, v.v.)
     allow_headers=["*"],  # Cho phép tất cả header
@@ -32,7 +34,8 @@ preprocess = transforms.Compose([
     transforms.Resize(256),
     transforms.CenterCrop(224),
     transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                         std=[0.229, 0.224, 0.225]),
 ])
 
 # --- Đường dẫn tệp dữ liệu ---
@@ -92,6 +95,26 @@ def find_top_similar_images(query_vectors, all_embeddings, metadata, top_n=10):
     return final_top_n, predict_id
 
 
+def read_data():
+    # Mảng movie_ids
+    movie_ids = ['0120082', '0367279', '1517268', '1386697', '0993846', '5071412', '10640346', '6334354', '7713068', '6394270', '1392190', '0780504', '1856101', '1596363', '1570728', '7660850', '0068646', '7221388', '12361974', '3205802', '1837576', '0120338', '0407887', '5537002', '0264235', '0816692', '8367814', '6263850', '2356777', '2935510', '0285331', '10155688',
+                 '5114356', '1104001', '0848228', '10648342', '12037194', '4154796', '4154756', '3501632', '9140554', '3498820', '2304589', '1706620', '6264654', '4154664', '3480822', '2584384', '7653254', '4236770', '0468569', '0372784', '1345836', '1707386', '0167260', '2015381', '0285333', '1655389', '2382320', '0381061', '2488496', '1502407', '7888964', '3032476', '0119217']
+
+    # Đọc dữ liệu từ movie_data.csv và tạo từ điển
+    movie_dict = {}
+
+    with open('movies_data.csv', mode='r', encoding='utf-8') as file:
+        reader = csv.DictReader(file)
+        for i, row in enumerate(reader):
+            if i < len(movie_ids):  # Đảm bảo rằng số hàng không vượt quá số imdb_id trong mảng
+                imdb_id = movie_ids[i]
+                movie_name = row['Tên phim']
+                movie_url = row['Poster URL']
+                movie_dict[imdb_id] = [movie_name, movie_url]
+
+    return movie_dict
+
+
 # --- API ---
 @app.post("/predict")
 async def predict_image(file: UploadFile = File(...)):
@@ -106,7 +129,8 @@ async def predict_image(file: UploadFile = File(...)):
         if image_array is None:
             raise ValueError("Could not decode the image.")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to process the image: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to process the image: {str(e)}")
 
     # Trích xuất embedding khuôn mặt
     face_embeddings = extract_face_embedding(image_array, face_model)
@@ -115,19 +139,27 @@ async def predict_image(file: UploadFile = File(...)):
 
     # Che mặt và trích xuất embedding cảnh
     masked_image = mask_faces(image_array, face_model)
-    scene_embedding = extract_scene_embedding_from_array(masked_image, scene_model, preprocess)
+    scene_embedding = extract_scene_embedding_from_array(
+        masked_image, scene_model, preprocess)
 
     # Kết hợp embedding khuôn mặt và cảnh
-    query_vectors = combine_face_and_scene_embeddings(face_embeddings, scene_embedding)
+    query_vectors = combine_face_and_scene_embeddings(
+        face_embeddings, scene_embedding)
 
     # Tìm kiếm phim tương tự
     try:
-        _, predicted_id = find_top_similar_images(query_vectors, all_embeddings, metadata)
+        movie_dict = read_data()
+        _, predicted_id = find_top_similar_images(
+            query_vectors, all_embeddings, metadata)
         link = f'https://www.imdb.com/title/tt{predicted_id}/'
+        movie_name, poster_url = movie_dict[predicted_id]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to predict: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to predict: {str(e)}")
 
     return {
         "predicted_imdb_id": str(predicted_id),
-         "link" : link
+        "movie_name": str(movie_name),
+        "poster_url": str(poster_url),
+        "link": link
     }
